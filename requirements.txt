@@ -1,6 +1,7 @@
 pathlib
 pillow
 pypdf
+reportlab
 pdf2image
 pytesseract
 uroman

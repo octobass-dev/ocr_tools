@@ -20,9 +20,12 @@ class ScannedPDFOCR:
         """
         self.input_pdf = input_pdf
         self.output_dir = output_dir
-        self.reader = PdfReader(input_pdf)
-        self.page_count = len(self.reader.pages)
-        
+        try:
+            self.reader = PdfReader(input_pdf)
+            self.page_count = len(self.reader.pages)
+        except Exception as e:
+            print(f"Tried opening PDF: {e}. Ignore if not a pdf file.")
+            self.page_count = 0
         # Create output directory
         Path(output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -129,10 +132,10 @@ class ScannedPDFOCR:
     
     def overlay_text_on_image(self, image: Image.Image, 
                              text_data: List[Dict],
-                             font_size: int = 15,
+                             font_size: int = 30,
                              text_color: Tuple = (0, 0, 0),
                              bg_color: Tuple = (255, 255, 255),
-                              transparency: float = 0) -> Image.Image:
+                             transparency: float = 0.8) -> Image.Image:
         """
         Overlay OCR text on original image
         
@@ -172,11 +175,14 @@ class ScannedPDFOCR:
         
         return result
     
-    def process_page(self, page_num: int, 
-                    translate: bool = True,
+    def process_page(self, page_num: int,
+                    romanize:bool = False,
+                    translate: bool = False,
                     target_language: str = "en",
                     source_language:str = 'en',
-                    save_ocr_json: bool = False) -> Dict:
+                    save_ocr_json: bool = False,
+                    font_size:int = 60,
+                    transparency:float = 0.8) -> Dict:
         """
         Process single page with OCR
         
@@ -204,7 +210,7 @@ class ScannedPDFOCR:
                 item['text'] = self.translate_text(item['text'], target_language, source_language)
         
         # Overlay text on image
-        ocr_image = self.overlay_text_on_image(image, text_data)
+        ocr_image = self.overlay_text_on_image(image, text_data, font_size=font_size, transparency=transparency)
         
         # Save OCR image
         ocr_path = os.path.join(self.output_dir, f"page_{page_num + 1:04d}_ocr.png")
@@ -224,11 +230,15 @@ class ScannedPDFOCR:
             'text_data': text_data
         }
     
-    def process_all_pages(self, translate: bool = True,
+    def process_all_pages(self, 
+                          romanize:bool = False,
+                         translate: bool = False,
                          target_language: str = "es",
                          source_language: str = None,
                          start_page: int = 0,
-                         end_page: int = None) -> List[Dict]:
+                         end_page: int = None,
+                         font_size = 60,
+                         transparency = 0.8) -> List[Dict]:
         """
         Process all pages in PDF
         
@@ -246,15 +256,20 @@ class ScannedPDFOCR:
         
         results = []
         for page_num in range(start_page, min(end_page + 1, self.page_count)):
-            result = self.process_page(page_num, translate, target_language, source_language)
+            result = self.process_page(page_num, romanize, translate, target_language, source_language,
+                                       font_size=font_size, transparency=transparency)
             results.append(result)
         
         return results
     
     def create_searchable_pdf(self, output_pdf: str = None,
-                            translate: bool = True,
+                            romanize:bool = False,
+                            translate: bool = False,
                             target_language: str = "es",
-                            source_language:str = None) -> str:
+                            source_language:str = None,
+                            font_size = 60,
+                            transparency = 0.8,
+                            **kwargs) -> str:
         """
         Create searchable PDF with text overlay
         Requires: pip install pypdf
@@ -280,7 +295,8 @@ class ScannedPDFOCR:
             output_pdf = os.path.join(self.output_dir, "searchable_output.pdf")
         
         # Process all pages
-        results = self.process_all_pages(translate, target_language, source_language)
+        results = self.process_all_pages(romanize, translate, target_language, source_language, 
+                                         font_size=font_size, transparency=transparency)
         
         writer = PdfWriter()
         
