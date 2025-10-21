@@ -152,14 +152,12 @@ class ScannedPDFOCR:
             Image with overlaid text
         """
         result = image.copy()
-        width, height = image.size
-        print(font_path)
+        #print(font_path)
         try:
             font = ImageFont.truetype(font_path, font_size)
         except Exception as e:
             print(f"Error loading font '{font_path}': {e}. Using default font.")
             font = ImageFont.load_default(font_size)
-        #print(font)
         draw = ImageDraw.Draw(result)
         
         for item in text_data:
@@ -170,16 +168,25 @@ class ScannedPDFOCR:
             # Draw semi-transparent background
             overlay = Image.new('RGBA', result.size, (255, 255, 255, 0))
             overlay_draw = ImageDraw.Draw(overlay)
+
             overlay_draw.rectangle(
                 [(x, y), (x + w, y + h)],
                 fill=(*bg_color, int(255 * transparency))
             )
-            result = Image.alpha_composite(result.convert('RGBA'), overlay).convert('RGB')
             
             # Draw text
-            draw = ImageDraw.Draw(result)
-            draw.text((x, y), text, font=font, fill=text_color)
-        
+            if h > w:
+                text_overlay = Image.new('RGBA', (h,w), (255, 255, 255, 0))
+                text_overlay_draw = ImageDraw.Draw(text_overlay)
+                text_overlay_draw.text((0, 0), text, font=font, fill=text_color)
+                text_overlay = text_overlay.rotate(90, expand=True)
+            else:
+                text_overlay = Image.new('RGBA', (w,h), (255, 255, 255, 0))
+                text_overlay_draw = ImageDraw.Draw(text_overlay)
+                text_overlay_draw.text((0, 0), text, font=font, fill=text_color)
+
+            overlay.paste(text_overlay, (x,y), text_overlay)
+            result = Image.alpha_composite(result.convert('RGBA'), overlay).convert('RGB')
         return result
     
     def process_page(self, page_num: int,
@@ -247,7 +254,8 @@ class ScannedPDFOCR:
                          end_page: int = None,
                          font_size = 60,
                          transparency = 0.8,
-                         ignore_existing:bool = True) -> List[Dict]:
+                         ignore_existing:bool = True,
+                         **kwargs) -> List[Dict]:
         """
         Process all pages in PDF
         
@@ -266,7 +274,7 @@ class ScannedPDFOCR:
         results = []
         for page_num in range(start_page, min(end_page + 1, self.page_count)):
             result = self.process_page(page_num, romanize, translate, target_language, source_language,
-                                       font_size=font_size, transparency=transparency)
+                                       font_size=font_size, transparency=transparency,ignore_existing=ignore_existing)
             results.append(result)
         
         return results

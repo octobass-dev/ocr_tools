@@ -10,10 +10,12 @@ The goal is to have a completely free setup for booking scanning, romanization, 
 
 TODO
 - Font size autoscaling
+- Rename romanize to transliterate or another appropriate option
+- 
 - Sentence detection, overlay
-- Add local translation server with Libre for free translation
+... Add local translation server with Libre for free translation
 - Test pdf,djvu ocr with image translation and romanization
-- Add support for more languages
+... Add support for more languages
 - Refactor and generalize code
 
 How to use tamil OCR

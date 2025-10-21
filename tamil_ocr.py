@@ -173,7 +173,7 @@ class TamilPDFOCR(OCRWithCliRomanize):
                     save_ocr_json: bool = False,
                     font_size:int = 60,
                     transparency:float = 0.8,
-                    ignore_existing:bool = True) -> Dict:
+                    ignore_existing:bool = False) -> Dict:
         """
         Process single page with OCR
         
@@ -189,7 +189,7 @@ class TamilPDFOCR(OCRWithCliRomanize):
         print(f"Processing page {page_num + 1}/{self.page_count}...")
         
         # Extract page as image
-        ocr_path = os.path.join(self.output_dir, f"page_{page_num + 1:04d}_ocr.png")
+        ocr_path = os.path.join(self.output_dir, f"page_{page_num + 1:04d}_ocr.jpg")
         if ignore_existing and os.path.exists(ocr_path):
             print(f"OCR image for page {page_num + 1} already exists. Skipping...")
             return {
@@ -210,7 +210,8 @@ class TamilPDFOCR(OCRWithCliRomanize):
             transparency=transparency
         )
         # Save OCR image
-        ocr_image.save(ocr_path, quality=30, optimize=True)
+        print(ocr_path)
+        ocr_image.save(ocr_path, quality=70, optimize=True)
         
         # Save OCR data as JSON
         if save_ocr_json:
@@ -233,7 +234,7 @@ class TamilPDFOCR(OCRWithCliRomanize):
                             source_language:str = None,
                             font_size = 60,
                             transparency = 0.8,
-                            ignore_existing=True,
+                            ignore_existing=False,
                             **kwargs) -> str:
         """
         Create searchable PDF with text overlay
@@ -257,8 +258,8 @@ class TamilPDFOCR(OCRWithCliRomanize):
             output_pdf = os.path.join(self.output_dir, "searchable_output.pdf")
         
         # Process all pages
-        results = self.process_all_pages(romanize, translate, target_language, source_language, 
-                                         font_size=font_size, transparency=transparency, ignore_existing=ignore_existing)
+        results = self.process_all_pages(romanize, translate, target_language, source_language,font_size=font_size,
+                                        transparency=transparency, ignore_existing=ignore_existing,**kwargs)
         
         pdf = FPDF()
         pdf.set_compression(True) 
@@ -313,7 +314,7 @@ def main():
     parser.add_argument('--translate', action='store_true', help="Translate the extracted text")
     parser.add_argument('-t', '--target-language', default='en', type=str, help="Target language for translation (default: en)")
     parser.add_argument('-s', '--source-language', default='auto', type=str, help="Source language for translation (default: en)")
-    parser.add_argument('--font-size', default=60, type=int, help="Font size for overlay text in PDF")
+    parser.add_argument('--font-size', default=40, type=int, help="Font size for overlay text in PDF")
     parser.add_argument('--transparency', default=0.8, type=float, help="Transparency for overlay text in PDF")
     parser.add_argument('--ignore-existing', default=False, action='store_true', help="Ignore existing OCR images when processing PDF")
     #parser.add_argument('-i', '--image-file', default = None, type=str, help="Optional image file for testing")
