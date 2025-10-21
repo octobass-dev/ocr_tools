@@ -132,6 +132,7 @@ class ScannedPDFOCR:
     
     def overlay_text_on_image(self, image: Image.Image, 
                              text_data: List[Dict],
+                             font_path: str = 'fonts/Poppins/Poppins-Regular.ttf',
                              font_size: int = 30,
                              text_color: Tuple = (0, 0, 0),
                              bg_color: Tuple = (255, 255, 255),
@@ -152,7 +153,13 @@ class ScannedPDFOCR:
         """
         result = image.copy()
         width, height = image.size
-        font = ImageFont.load_default(font_size)
+        print(font_path)
+        try:
+            font = ImageFont.truetype(font_path, font_size)
+        except Exception as e:
+            print(f"Error loading font '{font_path}': {e}. Using default font.")
+            font = ImageFont.load_default(font_size)
+        #print(font)
         draw = ImageDraw.Draw(result)
         
         for item in text_data:
@@ -182,7 +189,8 @@ class ScannedPDFOCR:
                     source_language:str = 'en',
                     save_ocr_json: bool = False,
                     font_size:int = 60,
-                    transparency:float = 0.8) -> Dict:
+                    transparency:float = 0.8,
+                    ignore_existing:bool = False) -> Dict:
         """
         Process single page with OCR
         
@@ -238,7 +246,8 @@ class ScannedPDFOCR:
                          start_page: int = 0,
                          end_page: int = None,
                          font_size = 60,
-                         transparency = 0.8) -> List[Dict]:
+                         transparency = 0.8,
+                         ignore_existing:bool = True) -> List[Dict]:
         """
         Process all pages in PDF
         
@@ -269,6 +278,7 @@ class ScannedPDFOCR:
                             source_language:str = None,
                             font_size = 60,
                             transparency = 0.8,
+                            ignore_existing=True,
                             **kwargs) -> str:
         """
         Create searchable PDF with text overlay
@@ -285,7 +295,6 @@ class ScannedPDFOCR:
         try:
             from pypdf import PdfWriter, PdfReader
             from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import letter
             import io
         except ImportError:
             print("Install required: pip install pypdf reportlab")
@@ -296,28 +305,34 @@ class ScannedPDFOCR:
         
         # Process all pages
         results = self.process_all_pages(romanize, translate, target_language, source_language, 
-                                         font_size=font_size, transparency=transparency)
+                                         font_size=font_size, transparency=transparency, ignore_existing=ignore_existing)
         
         writer = PdfWriter()
         
         print("Creating searchable PDF...")
         for result in results:
             page_num = result['page_num'] - 1
-            original_page = self.doc[page_num]
+            original_page = self.reader.pages[page_num]
+            box = original_page.mediabox
             
             # Create text overlay
             text_overlay = io.BytesIO()
-            c = canvas.Canvas(text_overlay, pagesize=letter)
-            
+            c = canvas.Canvas(text_overlay, pagesize=(box.width, box.height))
+            if result['ocr_image_path'] is not None and os.path.exists(result['ocr_image_path']):
+                print(result['ocr_image_path'])
+                c.drawImage(result['ocr_image_path'], x=0, y=0, width=box.width, height=box.height)
+
+            c.setFont("Helvetica", font_size)
             for item in result['text_data']:
                 c.drawString(item['x'], item['y'], item['text'])
-            
             c.save()
             text_overlay.seek(0)
-            
-            # Merge with original page
-            # Note: This is simplified - full implementation requires proper PDF manipulation
-            writer.add_page(original_page)
+
+            image_pdf_reader = PdfReader(io.BytesIO(text_overlay.getvalue()))
+            new_page = image_pdf_reader.pages[0]
+            #original_page.merge_page(new_page, over=True)
+
+            writer.add_page(new_page)
         
         with open(output_pdf, 'wb') as f:
             writer.write(f)

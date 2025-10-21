@@ -3,6 +3,10 @@ pillow
 pypdf
 reportlab
 pdf2image
+fpdf #Easier to use, will eventually replace reportlab, pypdf
 pytesseract
 uroman
 ocr_tamil #Tamil OCR library, only needed for processing tamil texts
+#libretrans
+IndicTransToolkit
+indic-transliteration

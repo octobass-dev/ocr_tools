@@ -4,6 +4,8 @@ from ocr_tamil.craft_text_detector import (
     get_prediction,
     export_detected_regions
 )
+
+import requests
 from PIL import Image
 from typing import List, Dict, Tuple
 import torch
@@ -12,6 +14,8 @@ import cv2
 import os
 import json
 import numpy as np
+from googletrans import Translator
+from utils import *
 
 class TamilOCR(OCR):
     def __init__(self,  assume_straight_page=True, **kwargs):
@@ -58,7 +62,7 @@ class TamilOCR(OCR):
             x,y,w,h = min_x,min_y,max_x-min_x, max_y-min_y
             if w>0 and h>0:
                 new_bbox.append([x,y,w,h])
-
+        ordered_new_bbox = []
         if len(new_bbox):
             ordered_new_bbox,line_info = self.sort_bboxes(new_bbox)
 
@@ -84,15 +88,16 @@ class TamilOCR(OCR):
         torch.cuda.empty_cache()
 
         if regions:
-            return exported_file_paths,updated_prediction_result, ordered_new_bbox   
-        return exported_file_paths,updated_prediction_result    
+            return exported_file_paths,updated_prediction_result, ordered_new_bbox
+        else: 
+            return exported_file_paths,updated_prediction_result    
 
 class TamilPDFOCR(OCRWithCliRomanize):
     def __init__(self, input_pdf: str, output_dir: str = "ocr_output"):
         super(TamilPDFOCR, self).__init__(input_pdf, output_dir)
         self.ocr = TamilOCR(detect=True, lang=['tamil'], assume_straight_page=True)
+        self.translator = Translator()
         
-    
     def extract_text_with_bbox(self, image_file:str) -> list[dict]:
         """
         Extract text from image with bounding boxes
@@ -124,6 +129,42 @@ class TamilPDFOCR(OCRWithCliRomanize):
                     })
         return results
     
+    def page_image_process(self, image, translate: bool = False,
+                    romanize:bool = False, target_language: str = "en",
+                    source_language:str = 'en',
+                    font_size:int = 60,
+                    transparency:float = 0.8) -> Tuple[Image.Image, List[Dict]]:
+            # Extract text with bounding boxes  
+        np_image = np.asarray(image)
+        cv2_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
+        text_data = self.extract_text_with_bbox(cv2_image)
+        
+        # Translate if requested
+        font_path = get_font_path(target_language)
+        if translate:
+            model, tokenizer, DEVICE = load_translation_model("ai4bharat/indictrans2-indic-indic-dist-320M")
+            translations = indic_translate([t['text'] for t in text_data], 
+                                           model, tokenizer, source_language, target_language)
+            #translations = local_libre_translate(text_data, source_language, target_language)
+
+            for i, item in enumerate(text_data):
+                item['original_text'] = item['text']
+                item['text'] = translations[i]
+        # Romanize if requested
+        elif romanize:
+            #font_path = get_font_path('en)
+            for item in text_data:
+                item['original_text'] = item['text']
+                #item['text'] = self.romanize_text(item['text'], source_language)
+                item['text'] = indic_transliterate(item['text'], source_language, target_language)
+        else:
+            font_path = get_font_path(source_language)
+        
+        # Overlay text on image
+        ocr_image = self.overlay_text_on_image(image, text_data, font_size=font_size, 
+                                               transparency=transparency, font_path=font_path)
+        return ocr_image, text_data
+
     def process_page(self, page_num: int,
                     romanize:bool = False,
                     translate: bool = False,
@@ -131,7 +172,8 @@ class TamilPDFOCR(OCRWithCliRomanize):
                     source_language:str = 'en',
                     save_ocr_json: bool = False,
                     font_size:int = 60,
-                    transparency:float = 0.8) -> Dict:
+                    transparency:float = 0.8,
+                    ignore_existing:bool = True) -> Dict:
         """
         Process single page with OCR
         
@@ -147,31 +189,28 @@ class TamilPDFOCR(OCRWithCliRomanize):
         print(f"Processing page {page_num + 1}/{self.page_count}...")
         
         # Extract page as image
-        image = self.extract_page_as_image(page_num)
-        np_image = np.asarray(image)
-        cv2_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
-        
-        # Extract text with bounding boxes
-        text_data = self.extract_text_with_bbox(cv2_image)
-        
-        # Translate if requested
-        if translate:
-            for item in text_data:
-                item['original_text'] = item['text']
-                item['text'] = self.translate_text(item['text'], target_language, source_language)
-
-        # Romanize if requested
-        if romanize:
-            for item in text_data:
-                item['original_text'] = item['text']
-                item['text'] = self.romanize_text(item['text'], source_language)
-        
-        # Overlay text on image
-        ocr_image = self.overlay_text_on_image(image, text_data, font_size=font_size, transparency=transparency)
-        
-        # Save OCR image
         ocr_path = os.path.join(self.output_dir, f"page_{page_num + 1:04d}_ocr.png")
-        ocr_image.save(ocr_path)
+        if ignore_existing and os.path.exists(ocr_path):
+            print(f"OCR image for page {page_num + 1} already exists. Skipping...")
+            return {
+                'page_num': page_num + 1,
+                'text_count': 0,
+                'ocr_image_path': ocr_path,
+                'ocr_json_path': None,
+                'text_data': []
+            }
+        image = self.extract_page_as_image(page_num)
+        ocr_image, text_data = self.page_image_process(
+            image,
+            translate=translate,
+            romanize=romanize,
+            target_language=target_language,
+            source_language=source_language,
+            font_size=font_size,
+            transparency=transparency
+        )
+        # Save OCR image
+        ocr_image.save(ocr_path, quality=30, optimize=True)
         
         # Save OCR data as JSON
         if save_ocr_json:
@@ -187,11 +226,85 @@ class TamilPDFOCR(OCRWithCliRomanize):
             'text_data': text_data
         }
     
+    def create_searchable_pdf(self, output_pdf: str = None,
+                            romanize:bool = False,
+                            translate: bool = False,
+                            target_language: str = "es",
+                            source_language:str = None,
+                            font_size = 60,
+                            transparency = 0.8,
+                            ignore_existing=True,
+                            **kwargs) -> str:
+        """
+        Create searchable PDF with text overlay
+        Requires: pip install pypdf
+        
+        Args:
+            output_pdf: Output PDF path
+            translate: Whether to translate text
+            target_language: Target language code
+        
+        Returns:
+            Path to output PDF
+        """
+        try:
+            from fpdf import FPDF
+        except ImportError:
+            print("Install required: pip install pypdf reportlab")
+            return None
+        
+        if output_pdf is None:
+            output_pdf = os.path.join(self.output_dir, "searchable_output.pdf")
+        
+        # Process all pages
+        results = self.process_all_pages(romanize, translate, target_language, source_language, 
+                                         font_size=font_size, transparency=transparency, ignore_existing=ignore_existing)
+        
+        pdf = FPDF()
+        pdf.set_compression(True) 
+
+        if romanize:
+            out_lang = 'en'
+
+        if translate:
+            out_lang = target_language
+
+        # For indian languages
+        if out_lang in ['ta', 'hi']:
+            pdf.add_font(family="Hind_Madurai", fname="./fonts/Hind_Madurai/", uni=True)
+            pdf.set_font("Hind_Madurai", size=font_size)
+        # Chinese
+        # pdf.add_font("CactusClassicalSerif", fname="./fonts/CactusClassicalSerif/CactusClassicalSerif-Regular.ttf", uni=True) 
+        # English
+        
+        pdf.set_text_color(0, 0, 0) # Black color (RGB)
+
+        print("Creating searchable PDF...")
+        for result in results[:10]:
+            page_num = result['page_num'] - 1
+            original_page = self.reader.pages[page_num]
+            box = original_page.mediabox
+            pdf.add_page(format=(box.width, box.height))
+            
+            # Create text overlay
+            if result['ocr_image_path'] is not None and os.path.exists(result['ocr_image_path']):
+                print(result['ocr_image_path'])
+                pdf.image(result['ocr_image_path'], x=0, y=0, w=pdf.w, h=pdf.h)
+
+            for item in result['text_data']:
+                pdf.set_xy(item['x'], item['y'])
+                pdf.write(font_size, item['text'])
+        
+        pdf.output(output_pdf)
+        
+        print(f"Searchable PDF saved to: {output_pdf}")
+        return output_pdf
+    
     
 IMAGES = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
 DOCS = ['.pdf']#, '.epub', '.mobi']
 
-if __name__=="__main__":
+def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', "--file", type=str, help="File to translate")
@@ -202,6 +315,7 @@ if __name__=="__main__":
     parser.add_argument('-s', '--source-language', default='auto', type=str, help="Source language for translation (default: en)")
     parser.add_argument('--font-size', default=60, type=int, help="Font size for overlay text in PDF")
     parser.add_argument('--transparency', default=0.8, type=float, help="Transparency for overlay text in PDF")
+    parser.add_argument('--ignore-existing', default=False, action='store_true', help="Ignore existing OCR images when processing PDF")
     #parser.add_argument('-i', '--image-file', default = None, type=str, help="Optional image file for testing")
     args = parser.parse_args()
     
@@ -212,14 +326,17 @@ if __name__=="__main__":
     print(outfile)
     if ext.lower() in IMAGES:
         ocr = TamilPDFOCR(None, args.output_dir)
-        results = ocr.extract_text_with_bbox(args.file)
-
-        for item in results:
-            item['original_text'] = item['text']
-            item['text'] = ocr.romanize_text(item['text'], 'ta')
-
         image = Image.open(args.file) 
-        out_image = ocr.overlay_text_on_image(image, results, font_size = 60, transparency=0.8) 
+        out_image, text_data = ocr.page_image_process(
+            image,
+            translate=args.translate,
+            romanize=args.romanize,
+            target_language=args.target_language,
+            source_language=args.source_language,
+            font_size=args.font_size,
+            transparency=args.transparency
+        )
+         # Save output image
         out_image.save(outfile)
     elif ext.lower() in DOCS:
         if args.source_language == 'ta' and args.romanize:
@@ -227,4 +344,7 @@ if __name__=="__main__":
             ocr.create_searchable_pdf(output_pdf=outfile, **vars(args))
 
     # process the whole 
+if __name__=="__main__":
+    #asyncio.run(main())
+    main()
 
