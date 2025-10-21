@@ -160,33 +160,34 @@ class ScannedPDFOCR:
             font = ImageFont.load_default(font_size)
         draw = ImageDraw.Draw(result)
         
+
+        # Draw semi-transparent background
+        overlay = Image.new('RGBA', result.size, (255, 255, 255, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        if len(text_data) > 0:
+            overlay_draw.rectangle(
+                [(0, 0), result.size],
+                fill=(*bg_color, int(255 * transparency))
+            )
+
         for item in text_data:
             x, y = item['x'], item['y']
             w, h = item['width'], item['height']
             text = item['text']
             
-            # Draw semi-transparent background
-            overlay = Image.new('RGBA', result.size, (255, 255, 255, 0))
-            overlay_draw = ImageDraw.Draw(overlay)
-
-            overlay_draw.rectangle(
-                [(x, y), (x + w, y + h)],
-                fill=(*bg_color, int(255 * transparency))
-            )
-            
             # Draw text
             if h > w:
-                text_overlay = Image.new('RGBA', (h,w), (255, 255, 255, 0))
+                text_overlay = Image.new('RGBA', (h+10,w+20), (255, 255, 255, 0))
                 text_overlay_draw = ImageDraw.Draw(text_overlay)
-                text_overlay_draw.text((0, 0), text, font=font, fill=text_color)
+                text_overlay_draw.text((font_size//2, (w-font_size)//2), text, font=font, fill=text_color)
                 text_overlay = text_overlay.rotate(90, expand=True)
             else:
-                text_overlay = Image.new('RGBA', (w,h), (255, 255, 255, 0))
+                text_overlay = Image.new('RGBA', (w+10,h+20), (255, 255, 255, 0))
                 text_overlay_draw = ImageDraw.Draw(text_overlay)
-                text_overlay_draw.text((0, 0), text, font=font, fill=text_color)
+                text_overlay_draw.text((font_size//2, (h-font_size)//2), text, font=font, fill=text_color)
 
             overlay.paste(text_overlay, (x,y), text_overlay)
-            result = Image.alpha_composite(result.convert('RGBA'), overlay).convert('RGB')
+        result = Image.alpha_composite(result.convert('RGBA'), overlay).convert('RGB')
         return result
     
     def process_page(self, page_num: int,
